@@ -1,5 +1,5 @@
 streamlit
-psycopg2-binary
-supabase
+psycopg2-binary==2.9.7
+supabase==1.0.4
 python-dotenv
 pandas
