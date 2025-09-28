@@ -13,11 +13,17 @@ from config import DB_HOST, DB_NAME, DB_USER, DB_PASS, DB_PORT
 
 # -------------------- DATABASE UTILITIES --------------------
 
-@st.cache_resource
 def get_db_conn():
+    """Get database connection - create new connection each time"""
     try:
         conn = psycopg2.connect(
-            host=DB_HOST, dbname=DB_NAME, user=DB_USER, password=DB_PASS, port=DB_PORT
+            host=DB_HOST, 
+            dbname=DB_NAME, 
+            user=DB_USER, 
+            password=DB_PASS, 
+            port=DB_PORT,
+            connect_timeout=10,
+            sslmode='require'
         )
         return conn
     except Exception as e:
@@ -29,53 +35,67 @@ def hash_password(raw: str) -> str:
 
 def init_db():
     """Create tables if they do not exist. Run once at startup."""
-    conn = get_db_conn()
-    if not conn:
-        return
-    cur = conn.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'user'
-        );
-        CREATE TABLE IF NOT EXISTS menu (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL,
-            category TEXT NOT NULL,
-            description TEXT,
-            price NUMERIC NOT NULL,
-            image_url TEXT
-        );
-        CREATE TABLE IF NOT EXISTS promo (
-            id SERIAL PRIMARY KEY,
-            code TEXT UNIQUE NOT NULL,
-            discount_amount NUMERIC NOT NULL,
-            active BOOLEAN DEFAULT TRUE
-        );
-        CREATE TABLE IF NOT EXISTS orders (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER REFERENCES users(id),
-            items_json JSONB,
-            total_price NUMERIC,
-            status TEXT DEFAULT 'Pending',
-            payment_method TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS reviews (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER REFERENCES users(id),
-            menu_id INTEGER REFERENCES menu(id),
-            rating INTEGER CHECK (rating >= 1 AND rating <= 5),
-            review_text TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-        """
-    )
-    conn.commit()
-    cur.close()
+    conn = None
+    cur = None
+    try:
+        conn = get_db_conn()
+        if not conn:
+            return False
+        
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user'
+            );
+            CREATE TABLE IF NOT EXISTS menu (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                category TEXT NOT NULL,
+                description TEXT,
+                price NUMERIC NOT NULL,
+                image_url TEXT
+            );
+            CREATE TABLE IF NOT EXISTS promo (
+                id SERIAL PRIMARY KEY,
+                code TEXT UNIQUE NOT NULL,
+                discount_amount NUMERIC NOT NULL,
+                active BOOLEAN DEFAULT TRUE
+            );
+            CREATE TABLE IF NOT EXISTS orders (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                items_json JSONB,
+                total_price NUMERIC,
+                status TEXT DEFAULT 'Pending',
+                payment_method TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS reviews (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                menu_id INTEGER REFERENCES menu(id),
+                rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+                review_text TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            """
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"Database initialization error: {e}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 # -------------------- USER FUNCTIONS --------------------
 
