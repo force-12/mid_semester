@@ -1,19 +1,25 @@
 """
-Main application file for Caffe Dehh
-Entry point that handles routing and session management
+File aplikasi utama untuk Caffe Dehh
+Titik masuk yang menangani routing dan manajemen sesi
 """
 
 import streamlit as st
 from config import APP_TITLE, BRAND
-from database import init_db
-from auth import page_login, show_register
+from database import init_db  # Impor ini sudah benar
+# Baris yang menyebabkan error di bawah ini akan dihapus
+from auth import page_login, page_register, page_forgot_password
 from user_dashboard import show_user_dashboard, page_review
-from admin_dashboard import show_admin_dashboard, page_admin_edit_menu
+from admin_dashboard import (
+    show_admin_dashboard, 
+    page_admin_edit_menu, 
+    page_admin_add_menu, 
+    page_admin_add_promo
+)
 
-# Initialize database
+# Inisialisasi database
 init_db()
 
-# Session state initialization
+# Inisialisasi session state
 if 'page' not in st.session_state:
     st.session_state['page'] = 'login'
 if 'user' not in st.session_state:
@@ -24,54 +30,38 @@ if 'cart' not in st.session_state:
     st.session_state['cart'] = {}
 if 'promo_applied' not in st.session_state:
     st.session_state['promo_applied'] = None
-if 'username' not in st.session_state:
-    st.session_state['username'] = None
-if 'role' not in st.session_state:
-    st.session_state['role'] = None
 
-# Page configuration
+# Konfigurasi halaman
 st.set_page_config(page_title=f"{APP_TITLE} - {BRAND}", layout='wide')
 
-# Top bar
+# Bar atas
 st.markdown(f"# {BRAND} — {APP_TITLE}")
 
-# Navigation helper
-def go(page: str):
-    st.session_state['page'] = page
-
-# Page routing
+# Pemetaan Halaman (Routing)
 PAGE_MAP = {
     'login': page_login,
-    'register': show_register,
+    'register': page_register,
+    'forgot_password': page_forgot_password,
     'user_dashboard': show_user_dashboard,
     'admin_dashboard': show_admin_dashboard,
     'admin_edit_menu': page_admin_edit_menu,
+    'admin_add_menu': page_admin_add_menu,
+    'admin_add_promo': page_admin_add_promo,
     'review': page_review,
 }
 
-# Router logic
-if st.session_state['logged_in']:
-    if st.session_state['role'] == "admin":
-        if st.session_state['page'] not in ['admin_dashboard', 'admin_edit_menu']:
-            st.session_state['page'] = 'admin_dashboard'
-    elif st.session_state['role'] == "user":
-        if st.session_state['page'] not in ['user_dashboard', 'review']:
-            st.session_state['page'] = 'user_dashboard'
-    else:
-        st.error("Peran pengguna tidak dikenal. Silakan hubungi admin.")
-        st.session_state['logged_in'] = False
-        st.session_state['page'] = 'login'
-        st.rerun()
-elif st.session_state['page'] not in ['login', 'register']:
-    st.session_state['page'] = 'login'
+# Logika Router
+current_page = st.session_state.get('page', 'login')
 
-# Render current page
-page = st.session_state['page']
-if page in PAGE_MAP:
-    PAGE_MAP[page]()
+# Render halaman saat ini
+if current_page in PAGE_MAP:
+    PAGE_MAP[current_page]()
 else:
-    st.error("Unknown page")
+    st.error("Halaman tidak dikenal")
+    st.session_state['page'] = 'login'
+    st.rerun()
 
 # Footer
 st.markdown("---")
-st.caption("Built with Streamlit • Caffe Dehh")
+st.caption("Dibuat dengan Streamlit • Caffe Dehh")
+

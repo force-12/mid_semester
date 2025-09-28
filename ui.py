@@ -1,26 +1,27 @@
 """
-Reusable UI components for the Streamlit app, like cart and order displays.
+Komponen UI yang dapat digunakan kembali untuk aplikasi Streamlit, seperti tampilan keranjang dan pesanan.
 """
 import streamlit as st
-import models
+# Ubah impor dari 'models' ke 'database' dan beri alias agar sisa kode tidak perlu diubah
+import database as models
 
-# --- Navigation Helper ---
+# --- Pembantu Navigasi ---
 def go(page_name: str):
-    """Sets the session state to navigate to a new page."""
+    """Mengatur status sesi untuk menavigasi ke halaman baru."""
     st.session_state['page'] = page_name
 
-# --- Cart Management ---
+# --- Manajemen Keranjang ---
 
 def add_to_cart(menu_id: int, quantity: int = 1):
-    """Adds an item to the session cart."""
+    """Menambahkan item ke keranjang sesi."""
     cart = st.session_state.get('cart', {})
     menu_id_str = str(menu_id)
     cart[menu_id_str] = cart.get(menu_id_str, 0) + int(quantity)
     st.session_state['cart'] = cart
-    st.success(f"Added to cart!")
+    st.success(f"Ditambahkan ke keranjang!")
 
 def remove_from_cart(menu_id: int):
-    """Removes an item from the session cart."""
+    """Menghapus item dari keranjang sesi."""
     cart = st.session_state.get('cart', {})
     menu_id_str = str(menu_id)
     if menu_id_str in cart:
@@ -29,16 +30,16 @@ def remove_from_cart(menu_id: int):
     st.experimental_rerun()
 
 def show_cart():
-    """Renders the shopping cart UI."""
-    st.markdown("### Cart")
+    """Merender UI keranjang belanja."""
+    st.markdown("### Keranjang")
     cart = st.session_state['cart']
     if not cart:
-        st.info("Your cart is empty. Add items from the Menu tab.")
+        st.info("Keranjang Anda kosong. Tambahkan item dari tab Menu.")
         return
 
-    # Fetch details for all items in the cart at once
+    # Ambil detail untuk semua item di keranjang sekaligus
     item_ids = [int(key) for key in cart.keys()]
-    menu_items = {str(item['id']): item for item in [models.get_menu_item_by_id(i) for i in item_ids] if item}
+    menu_items = {str(item['id']): item for item in [models.get_menu_item(i) for i in item_ids] if item}
 
     total = 0
     items_payload = []
@@ -46,90 +47,91 @@ def show_cart():
     for item_id_str, quantity in cart.items():
         item = menu_items.get(item_id_str)
         if item:
-            item_total = item['price'] * quantity
+            item_total = item['harga'] * quantity
             total += item_total
-            st.write(f"**{item['name']}** x {quantity} — Rp {int(item_total):,}")
-            if st.button(f"Remove", key=f"rm_{item_id_str}"):
+            st.write(f"**{item['nama']}** x {quantity} — Rp {int(item_total):,}")
+            if st.button(f"Hapus", key=f"rm_{item_id_str}"):
                 remove_from_cart(int(item_id_str))
             items_payload.append({
-                'menu_id': item['id'],
-                'name': item['name'],
-                'price': item['price'],
+                'id_menu': item['id'],
+                'nama': item['nama'],
+                'harga': item['harga'],
                 'qty': quantity
             })
     st.markdown("---")
     st.write(f"**Subtotal: Rp {int(total):,}**")
 
-    # Promo Code Section
-    promo_code = st.text_input("Enter Promo Code", key='promo_input')
-    if st.button("Apply Promo"):
-        promo = models.get_active_promo_by_code(promo_code)
+    # Bagian Kode Promo
+    promo_code = st.text_input("Masukkan Kode Promo", key='promo_input')
+    if st.button("Terapkan Promo"):
+        promo = models.get_active_promo(promo_code)
         if promo:
             st.session_state['promo_applied'] = promo
-            st.success(f"Promo '{promo['code']}' applied! Discount: Rp {int(promo['discount_amount']):,}")
+            st.success(f"Promo '{promo['kode']}' diterapkan! Diskon: Rp {int(promo['jumlah_diskon']):,}")
         else:
             st.session_state['promo_applied'] = None
-            st.error("Invalid or inactive promo code.")
+            st.error("Kode promo tidak valid atau tidak aktif.")
 
     discount = 0
-    if st.session_state['promo_applied']:
+    if st.session_state.get('promo_applied'):
         promo_info = st.session_state['promo_applied']
-        discount = float(promo_info['discount_amount'])
-        st.write(f"**Discount ({promo_info['code']}): - Rp {int(discount):,}**")
+        discount = float(promo_info['jumlah_diskon'])
+        st.write(f"**Diskon ({promo_info['kode']}): - Rp {int(discount):,}**")
 
     grand_total = max(0, total - discount)
     st.markdown(f"### Total: Rp {int(grand_total):,}")
 
-    # Checkout Section
+    # Bagian Checkout
     st.markdown("---")
     st.markdown("### Checkout")
     with st.form("checkout_form"):
-        st.text_input("Your Name")
-        st.text_input("Table Number")
-        payment_method = st.selectbox("Payment Method", ["Cash", "QRIS", "E-Wallet"])
-        submitted = st.form_submit_button("Place Order")
+        st.text_input("Nama Anda")
+        st.text_input("Nomor Meja")
+        payment_method = st.selectbox("Metode Pembayaran", ["Tunai", "QRIS", "E-Wallet"])
+        submitted = st.form_submit_button("Buat Pesanan")
 
         if submitted:
             user = st.session_state.get('user')
             if not user:
-                st.error("You must be logged in to place an order.")
+                st.error("Anda harus masuk untuk membuat pesanan.")
                 return
 
             try:
                 order_id = models.create_order(user['id'], items_payload, grand_total, payment_method)
-                st.success(f"Order placed successfully! Your Order ID is: {order_id}. Please proceed to the cashier for payment.")
-                # Clear cart and promo after successful order
+                st.success(f"Pesanan berhasil dibuat! ID Pesanan Anda adalah: {order_id}. Silakan lanjutkan ke kasir untuk pembayaran.")
+                # Kosongkan keranjang dan promo setelah pesanan berhasil
                 st.session_state['cart'] = {}
                 st.session_state['promo_applied'] = None
                 st.experimental_rerun()
             except Exception as e:
-                st.error(f"Failed to place order: {e}")
+                st.error(f"Gagal membuat pesanan: {e}")
 
 
 def show_user_orders():
-    """Renders the order history for the current user."""
-    st.markdown("### Your Orders")
+    """Merender riwayat pesanan untuk pengguna saat ini."""
+    st.markdown("### Pesanan Anda")
     user = st.session_state.get('user')
     if not user:
-        st.warning("Please log in to see your orders.")
+        st.warning("Silakan masuk untuk melihat pesanan Anda.")
         return
 
-    orders = models.get_orders_by_user_id(user['id'])
+    orders = models.get_user_orders(user['id'])
 
     if not orders:
-        st.info("You have no past orders.")
+        st.info("Anda tidak memiliki pesanan sebelumnya.")
         return
 
     for order in orders:
         with st.container():
-            st.markdown(f"**Order ID: {order['id']}** | Status: `{order['status']}`")
-            st.write(f"Total: Rp {int(order['total']):,} | Payment: {order['payment_method']} | Date: {order['created_at']}")
-            with st.expander("View Details"):
-                for item in order['items']:
-                    st.write(f"- {item['name']} x {item['qty']}")
-            if order['status'] == 'Selesai': # Assuming this is the 'Completed' status
-                if st.button(f"Rate This Order", key=f"rate_{order['id']}"):
+            st.markdown(f"**ID Pesanan: {order['id']}** | Status: `{order['status']}`")
+            st.write(f"Total: Rp {int(order['total']):,} | Pembayaran: {order['metode_pembayaran']} | Tanggal: {order['dibuat_pada']}")
+            with st.expander("Lihat Detail"):
+                for item in order['item']:
+                    st.write(f"- {item['nama']} x {item['qty']}")
+            if order['status'] == 'Selesai': 
+                if st.button(f"Beri Peringkat Pesanan Ini", key=f"rate_{order['id']}"):
                     st.session_state['review_target_order'] = order['id']
                     go('review')
                     st.experimental_rerun()
             st.markdown("---")
+
