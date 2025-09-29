@@ -433,7 +433,7 @@ def list_orders():
     cur.close()
     conn.close()
     return [
-        {"id": r[0], "id_pengguna": r[1], "item": r[2], "total": float(r[3]), "status": r[4], "metode_pembayaran": r[5], "dibuat_pada": r[6].isoformat()}
+        {"id": r[0], "id_pengguna": r[1], "item": r[2], "total": float(r[3]), "status": r[4], "metode_pembayaran": r[5], "dibuat_pada": r[6]}
         for r in rows
     ]
 
@@ -499,7 +499,6 @@ def get_all_reviews():
     cur.close()
     conn.close()
     return [
-        {"id": r[0], "id_pengguna": r[1], "nama_pengguna": r[2], "id_menu": r[3], "nama_menu": r[4], "penilaian": r[5], "teks_ulasan": r[6], "dibuat_pada": r[7].isoformat()}
+        {"id": r[0], "id_pengguna": r[1], "nama_pengguna": r[2], "id_menu": r[3], "nama_menu": r[4], "penilaian": r[5], "teks_ulasan": r[6], "dibuat_pada": r[7]}
         for r in rows
     ]
-

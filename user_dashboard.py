@@ -1,311 +1,319 @@
 """
 Dasbor pengguna untuk aplikasi Caffe Dehh
-Dengan fitur favorit, pesan ulang, dan status real-time.
+Berisi tampilan menu, keranjang, riwayat pesanan, dan fitur favorit.
 """
 
 import streamlit as st
-import time
 from database import (
-    get_all_menu, get_menu_item, create_order, get_user_orders, 
-    submit_review, get_active_promo, get_reviews_for_menu,
+    get_all_menu, 
+    add_to_favorites, 
+    remove_from_favorites, 
+    get_favorite_menus,
     get_order_by_id,
-    add_to_favorites, remove_from_favorites, get_favorite_menus # Impor fungsi favorit
+    submit_review,
+    get_reviews_for_menu
 )
+from ui import show_cart, show_user_orders, go
+from datetime import datetime # Diperlukan untuk formatting tanggal jika tidak ada di ui.py
+
+# --- FUNGSI HALAMAN UTAMA ---
 
 def show_user_dashboard():
+    """Menampilkan halaman utama pengguna dengan navigasi berbasis header dan tabs."""
     user = st.session_state.get('user', {})
-    st.subheader(f"Selamat Datang, {user.get('nama_pengguna', 'Pengguna')}!")
     
-    if st.sidebar.button("Keluar"):
-        st.session_state.clear()
-        st.session_state['page'] = 'login'
-        st.rerun()
-
-    # FITUR BARU: Menambahkan tab Favorit
-    tabs = st.tabs(["🍔 Menu", "❤️ Favorit Saya", "🛒 Keranjang", "📦 Pesanan / Status", "👤 Profil"])
-    
-    with tabs[0]:
-        show_menu_tab(user)
-    with tabs[1]:
-        show_favorites_tab(user)
-    with tabs[2]:
-        show_cart_tab(user)
-    with tabs[3]:
-        show_user_orders_tab(user)
-    with tabs[4]:
-        show_profile_tab(user)
-
-def show_menu_tab(user):
-    search = st.text_input("Cari menu berdasarkan nama", key="menu_search")
-    # Membutuhkan user_id untuk mengetahui status favorit
-    menu_items = get_all_menu(search, user_id=user.get('id'))
-    
-    cats = {}
-    for m in menu_items:
-        cats.setdefault(m['kategori'], []).append(m)
-    
-    for cat, items in cats.items():
-        st.markdown(f"### {cat}")
-        cols = st.columns(3)
-        for i, it in enumerate(items):
-            c = cols[i % 3]
-            with c:
-                # FITUR BARU: Tombol Favorit di sebelah nama
-                is_fav = it.get('is_favorite', False)
-                fav_icon = "❤️" if is_fav else "🤍"
-                if st.button(f"{fav_icon}", key=f"fav_menu_{it['id']}", help="Tambahkan ke favorit"):
-                    if is_fav:
-                        remove_from_favorites(user['id'], it['id'])
-                    else:
-                        add_to_favorites(user['id'], it['id'])
-                    st.rerun()
-                
-                st.markdown(f"**{it['nama']}** — Rp {int(it['harga'])}")
-                
-                avg_rating = it.get('rating_rata_rata', 0)
-                num_reviews = it.get('jumlah_ulasan', 0)
-                if num_reviews > 0:
-                    st.markdown(f"⭐ {avg_rating:.1f} ({num_reviews} ulasan)")
-                else:
-                    st.markdown("_(Belum ada ulasan)_")
-
-                if it['url_gambar']:
-                    st.image(it['url_gambar'], use_container_width=True)
-                
-                st.caption(it['deskripsi'])
-                
-                # FITUR BARU: Menampilkan status stok
-                is_available = it.get('tersedia', True)
-                if is_available:
-                    st.success("Tersedia")
-                    qty = st.number_input("Jumlah", min_value=1, value=1, key=f"qty_{it['id']}")
-                    if st.button("Tambah ke keranjang", key=f"add_{it['id']}"):
-                        add_to_cart(it, qty)
-                        st.success("Ditambahkan ke keranjang")
-                else:
-                    st.error("Habis")
-                    st.button("Tambah ke keranjang", key=f"add_{it['id']}", disabled=True)
-
-def show_favorites_tab(user):
-    st.markdown("### Menu Favorit Anda")
-    favorite_items = get_favorite_menus(user.get('id'))
-
-    if not favorite_items:
-        st.info("Anda belum memiliki menu favorit. Tambahkan dengan menekan ikon hati ❤️ pada halaman menu.")
-        return
-
-    for it in favorite_items:
-        st.markdown(f"**{it['nama']}** — Rp {int(it['harga'])}")
-        if it['url_gambar']:
-            st.image(it['url_gambar'], width=200)
-        
-        is_available = it.get('tersedia', True)
-        if is_available:
-            if st.button("Tambah ke Keranjang", key=f"add_fav_{it['id']}"):
-                add_to_cart(it, 1)
-                st.success(f"{it['nama']} ditambahkan ke keranjang!")
-        else:
-            st.error("Habis")
-        
-        if st.button("Hapus dari Favorit", key=f"rem_fav_{it['id']}"):
-            remove_from_favorites(user['id'], it['id'])
+    # Header dengan sambutan di kiri dan tombol keluar di kanan
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.markdown(f"### Selamat Datang, {user.get('nama_pengguna', 'Pelanggan')}!")
+    with col2:
+        if st.button("Keluar", key='user_logout', use_container_width=True):
+            st.session_state.clear()
+            st.session_state['page'] = 'login'
             st.rerun()
-        st.markdown("---")
-
-def show_user_orders_tab(user):
-    st.markdown("### Pesanan Anda")
-
-    placeholder = st.empty()
-    
-    # FITUR BARU: Simulasi real-time update
-    # Dijalankan beberapa kali untuk menunjukkan pembaruan
-    for i in range(5): 
-        with placeholder.container():
-            orders = get_user_orders(user['id'])
-            
-            if not orders:
-                st.info("Belum ada pesanan")
-                break
-            
-            for order in orders:
-                created_at_str = order.get('dibuat_pada').strftime('%d %B %Y, %H:%M') if order.get('dibuat_pada') else 'N/A'
-                st.write(f"ID: {order['id']} | **Status: {order['status']}** | Total: Rp {int(order['total'])}")
-                st.caption(f"{created_at_str} | {order['metode_pembayaran']}")
-                
-                items = order.get('item', [])
-                with st.expander("Lihat Detail Pesanan"):
-                    for it in items:
-                        st.write(f" - {it.get('nama', 'N/A')} x {it.get('qty', 0)}")
-
-                # Tombol hanya muncul jika status pesanan adalah 'Selesai'
-                if order['status'] == 'Selesai':
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("Beri Ulasan", key=f"rate_{order['id']}"):
-                            st.session_state['page'] = 'review'
-                            st.session_state['review_target_order'] = order['id']
-                            st.rerun()
-                    with col2:
-                        # FITUR BARU: Tombol Pesan Ulang
-                        if st.button("Pesan Ulang", key=f"reorder_{order['id']}"):
-                            reorder_items(items)
-                            st.success("Semua item dari pesanan ini telah ditambahkan kembali ke keranjang!")
-                            time.sleep(1) # Beri waktu untuk membaca pesan
-                            st.rerun() # Pindah ke halaman keranjang bisa dilakukan di sini jika diinginkan
-                st.markdown("---")
-        
-        # Cek jika semua pesanan sudah selesai, hentikan loop
-        all_done = all(o['status'] in ['Selesai', 'Dibatalkan'] for o in orders)
-        if all_done:
-            break
-            
-        time.sleep(15) # Tunggu 15 detik sebelum refresh
-
-# --- Fungsi Helper ---
-
-def add_to_cart(item_dict, qty=1):
-    if 'cart' not in st.session_state:
-        st.session_state['cart'] = {}
-    cart = st.session_state['cart']
-    item_id_str = str(item_dict['id'])
-
-    # Simpan seluruh detail item di keranjang
-    if item_id_str not in cart:
-        cart[item_id_str] = item_dict
-        cart[item_id_str]['qty'] = 0
-    
-    cart[item_id_str]['qty'] += int(qty)
-    st.session_state['cart'] = cart
-
-def reorder_items(items_list):
-    """Fungsi untuk menambahkan semua item dari pesanan lama ke keranjang."""
-    for item in items_list:
-        # Kita butuh detail lengkap item menu, jadi kita ambil dari database
-        menu_item_details = get_menu_item(item['id_menu'])
-        if menu_item_details and menu_item_details.get('tersedia', True):
-            add_to_cart(menu_item_details, item['qty'])
-
-# (Sisa kode seperti show_cart_tab, page_review, dll. tidak banyak berubah)
-def show_cart_tab(user):
-    st.markdown("### Keranjang")
-    cart = st.session_state.get('cart', {})
-    
-    if not cart:
-        st.info("Keranjang kosong")
-        return
-    
-    total = 0
-    items_payload = []
-    
-    for item_id, item_details in cart.items():
-        st.write(f"{item_details['nama']} x {item_details['qty']} — Rp {int(item_details['harga'])} per item")
-        total += item_details['harga'] * item_details['qty']
-        if st.button("Hapus", key=f"rm_{item_id}"):
-            remove_from_cart(item_id)
-            st.rerun()
-        
-        items_payload.append({
-            'id_menu': item_details['id'], 
-            'nama': item_details['nama'], 
-            'harga': item_details['harga'], 
-            'qty': item_details['qty']
-        })
-
-    st.write(f"Subtotal: Rp {int(total)}")
-    # ... (kode promo dan checkout yang sudah ada) ...
-    # Bagian kode promo
-    promo_code = st.text_input("Kode promo", key='promo_input')
-    if st.button("Terapkan Promo"):
-        promo = get_active_promo(promo_code)
-        if promo:
-            st.session_state['promo_applied'] = promo
-            st.success(f"Promo diterapkan: {promo['kode']} - Rp {int(promo.get('jumlah_diskon', 0))}")
-        else:
-            st.error("Promo tidak valid atau tidak aktif")
-    
-    discount = 0
-    if st.session_state.get('promo_applied'):
-        discount = float(st.session_state['promo_applied'].get('jumlah_diskon', 0))
-    
-    grand = max(0, total - discount)
-    st.write(f"Diskon: Rp {int(discount)}")
-    st.write(f"Total: Rp {int(grand)}")
 
     st.markdown("---")
-    st.markdown("### Checkout")
-    with st.form("checkout_form"):
-        name = st.text_input("Nama pemesan")
-        table_no = st.text_input("Nomor meja")
-        payment_method = st.selectbox("Metode pembayaran", ["Tunai", "QRIS", "E-Wallet"])
-        submitted = st.form_submit_button("Buat Pesanan")
 
-        if submitted:
-            if not items_payload:
-                st.warning("Keranjang Anda kosong.")
-                return
-            
-            oid = create_order(user['id'], items_payload, grand, payment_method)
-            st.success(f"Pesanan dibuat (ID: {oid}). Bayar di kasir.")
-            
-            # Kosongkan keranjang & promo
-            st.session_state['cart'] = {}
-            st.session_state['promo_applied'] = None
-            st.rerun()
+    # Navigasi utama menggunakan komponen st.tabs
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Menu", "Keranjang", "Pesanan Saya", "Favorit", "Profil"])
 
-def remove_from_cart(menu_id):
-    cart = st.session_state.get('cart', {})
-    if str(menu_id) in cart:
-        del cart[str(menu_id)]
-    st.session_state['cart'] = cart
+    with tab1:
+        page_menu()
+    with tab2:
+        # show_cart diimpor dari ui.py
+        show_cart()
+    with tab3:
+        # show_user_orders diimpor dari ui.py
+        show_user_orders()
+    with tab4:
+        page_favorites()
+    with tab5:
+        page_user_profile()
+        
+# --- FUNGSI DETAIL HALAMAN (Diekspor ke main.py jika diperlukan) ---
 
-def show_profile_tab(user):
-    st.write("Profil - belum diimplementasikan secara mendalam")
-    st.write(f"Nama pengguna: {user.get('nama_pengguna', 'N/A')}")
-    st.write(f"Peran: {user.get('peran', 'N/A')}")
+def page_menu():
+    # CSS khusus agar teks selectbox kategori selalu hitam dan terlihat
+    st.markdown("""
+        <style>
+        /* Paksa warna teks value selectbox kategori agar selalu hitam (untuk berbagai versi Streamlit/react-select) */
+        div[data-testid="stSelectbox"] .css-1dimb5e-singleValue,
+        div[data-testid="stSelectbox"] .css-1wa3eu0-placeholder,
+        div[data-testid="stSelectbox"] [data-baseweb="select"] [role="button"] span {
+            color: #000 !important;
+        }
+        /* Untuk dropdown option */
+        div[data-testid="stSelectbox"] [data-baseweb="select"] [role="option"] {
+            color: #000 !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    st.markdown("## 📃 Daftar Menu Caffe Dehh")
+    
+    # Filter dan Pencarian
+    col_search, col_filter = st.columns([3, 1])
+    with col_search:
+        search_term = st.text_input("Cari Menu", placeholder="Ketik nama makanan atau minuman...")
+    with col_filter:
+        category_filter = st.selectbox("Filter Kategori", ["Semua", "Makanan", "Minuman", "Dessert"], label_visibility="visible")
 
+    user_id = st.session_state['user']['id']
+    all_items = get_all_menu(search=search_term, user_id=user_id)
+
+    # Filter berdasarkan kategori
+    if category_filter != "Semua":
+        items = [item for item in all_items if item['kategori'] == category_filter]
+    else:
+        items = all_items
+
+    if not items:
+        st.info("Menu tidak ditemukan.")
+        return
+
+    # Tampilkan menu dalam layout kolom yang menarik
+    st.markdown("---")
+    
+    # Menggunakan kolom responsif (3 kolom di layar lebar)
+    cols = st.columns(3)
+    
+    for i, item in enumerate(items):
+        with cols[i % 3]:
+            # Menggunakan st.container untuk efek kartu menu
+            with st.container():
+                st.markdown("<div class='stContainer' style='padding: 10px; border: 1px solid #D3A58E;'>", unsafe_allow_html=True)
+                
+                # Gambar menu
+                if item['url_gambar']:
+                    # DIPERBAIKI: Mengganti use_column_width dengan use_container_width
+                    st.image(item['url_gambar'], use_container_width=True, caption=item['nama'])
+                else:
+                    st.markdown("<div style='height: 150px; background-color: #D3A58E; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;'>[Gambar Menu]</div>", unsafe_allow_html=True)
+                
+                # Detail
+                st.markdown(f"**{item['nama']}**")
+                st.markdown(f"*{item['kategori']}* | **Rp {int(item['harga']):,}**")
+                
+                # Ketersediaan dan Rating
+                status_icon = "✅" if item.get('tersedia', True) else "🚫"
+                rating_text = f"⭐ {item['rating_rata_rata']:.1f} ({item['jumlah_ulasan']} ulasan)"
+
+                st.caption(f"{status_icon} | {rating_text}")
+
+                # Aksi
+                col_fav, col_add = st.columns([1, 2])
+                
+                with col_fav:
+                    is_favorite = item.get('is_favorite', False)
+                    fav_icon = "❤️" if is_favorite else "🤍"
+                    fav_key = f"fav_{item['id']}_{i}"
+
+                    if st.button(fav_icon, key=fav_key, use_container_width=True, help="Tambahkan/Hapus dari Favorit"):
+                        if is_favorite:
+                            remove_from_favorites(user_id, item['id'])
+                            st.toast("💔 Dihapus dari favorit.")
+                        else:
+                            add_to_favorites(user_id, item['id'])
+                            st.toast("❤️ Ditambahkan ke favorit!")
+                        st.rerun() # Diperbaiki: Menggunakan st.rerun()
+                
+                with col_add:
+                    # Input kuantitas dan tombol Add to Cart
+                    qty = st.number_input("Jumlah", min_value=1, value=1, key=f"qty_{item['id']}_{i}", label_visibility="collapsed")
+                    if st.button("➕ Tambah", key=f"add_{item['id']}_{i}", use_container_width=True, disabled=not item.get('tersedia', True)):
+                        # Menggunakan fungsi add_to_cart dari ui.py
+                        from ui import add_to_cart
+                        add_to_cart(item['id'], qty)
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("") # Spasi
+                
+# --- FUNGSI HALAMAN FAVORIT ---
+
+def page_favorites():
+    st.markdown("## ❤️ Menu Favorit Anda")
+    user_id = st.session_state['user']['id']
+    favorite_items = get_favorite_menus(user_id)
+
+    if not favorite_items:
+        st.info("Anda belum memiliki menu favorit. Jelajahi menu untuk menambahkannya!")
+        return
+
+    st.markdown("---")
+    
+    # Tampilkan dalam kartu 2 kolom
+    cols = st.columns(2)
+    
+    for i, item in enumerate(favorite_items):
+        with cols[i % 2]:
+            with st.container():
+                st.markdown("<div class='stContainer' style='padding: 15px; border: 2px solid #D3A58E;'>", unsafe_allow_html=True)
+                
+                col_img, col_detail, col_action = st.columns([1, 3, 1])
+                
+                with col_img:
+                    if item['url_gambar']:
+                        st.image(item['url_gambar'], width=80)
+                
+                with col_detail:
+                    st.markdown(f"**{item['nama']}**")
+                    st.markdown(f"**Rp {int(item['harga']):,}**")
+                    st.caption(f"⭐ {item['rating_rata_rata']:.1f} | Kategori: {item['kategori']}")
+                
+                with col_action:
+                    if st.button("🗑️", key=f"remove_fav_{item['id']}_{i}", help="Hapus dari Favorit", use_container_width=True):
+                        remove_from_favorites(user_id, item['id'])
+                        st.toast("💔 Dihapus dari favorit.")
+                        st.rerun() # Diperbaiki: Menggunakan st.rerun()
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("")
+
+# --- FUNGSI HALAMAN REVIEW ---
+# Fungsi ini diekspor ke main.py
 def page_review():
-    st.subheader("Kirim Ulasan")
+    st.markdown("## ⭐ Beri Ulasan Anda")
     order_id = st.session_state.get('review_target_order')
 
     if not order_id:
-        st.error("Pesanan tidak ditemukan untuk diulas.")
-        if st.button("Kembali ke Dasbor"):
-            st.session_state['page'] = 'user_dashboard'
-            st.rerun()
+        st.error("Tidak ada pesanan yang dipilih untuk diulas.")
+        if st.button("Kembali ke Pesanan Saya"):
+            go('user_dashboard')
+            st.rerun() # Diperbaiki: Menggunakan st.rerun()
         return
 
-    order_details = get_order_by_id(order_id)
-    if not order_details or not order_details.get('item'):
-        st.error("Tidak dapat memuat item dari pesanan ini.")
-        if st.button("Kembali ke Dasbor"):
-            st.session_state['page'] = 'user_dashboard'
-            st.rerun()
+    order = get_order_by_id(order_id)
+    if not order:
+        st.error("Detail pesanan tidak ditemukan.")
+        if st.button("Kembali"):
+            del st.session_state['review_target_order']
+            go('user_dashboard')
+            st.rerun() # Diperbaiki: Menggunakan st.rerun()
         return
 
-    st.write(f"Mengulas pesanan: {order_id}")
+    st.info(f"Anda mengulas Pesanan **#{order_id}** yang terdiri dari:")
     
-    items_in_order = order_details.get('item', [])
-    item_choices = {item['nama']: item['id_menu'] for item in items_in_order}
+    # Mengambil semua item dalam pesanan untuk diulas
+    reviewable_items = []
+    # Memastikan 'item' adalah list/array sebelum iterasi
+    if isinstance(order.get('item'), list):
+        for item_data in order['item']:
+            menu_id = item_data.get('id_menu')
+            nama_menu = item_data.get('nama', 'Menu Tidak Dikenal')
+            if menu_id:
+                reviewable_items.append({'id': menu_id, 'nama': nama_menu})
 
-    selected_item_name = st.selectbox("Pilih menu untuk diulas", list(item_choices.keys()))
-    
-    rating = st.slider("Peringkat", 1, 5, 5)
-    text = st.text_area("Tulis ulasan Anda")
-    
-    col1, col2 = st.columns([1, 5])
-    with col1:
-        if st.button("Kirim Ulasan"):
-            uid = st.session_state['user']['id']
-            mid = item_choices[selected_item_name]
-            submit_review(uid, mid, rating, text)
-            st.success("Terima kasih atas ulasannya!")
+    if not reviewable_items:
+        st.warning("Pesanan ini tidak memiliki item yang dapat diulas.")
+        if st.button("Selesai Ulasan"):
             del st.session_state['review_target_order']
-            st.session_state['page'] = 'user_dashboard'
-            st.rerun()
+            go('user_dashboard')
+            st.rerun() # Diperbaiki: Menggunakan st.rerun()
+        return
 
-    with col2:
-        if st.button("Batal"):
+    # Formulir Ulasan
+    with st.container():
+        st.markdown("<div class='stContainer' style='padding: 20px;'>", unsafe_allow_html=True)
+        st.subheader("Ulas Item")
+        
+        # Menggunakan session state untuk melacak item yang sudah diulas
+        if 'reviewed_items' not in st.session_state:
+            st.session_state['reviewed_items'] = set()
+
+        for item in reviewable_items:
+            # Periksa apakah item ini sudah diulas dalam sesi ini
+            if item['id'] in st.session_state['reviewed_items']:
+                st.markdown(f"**{item['nama']}** (✅ Sudah Diulas)")
+                continue
+
+            st.markdown(f"---")
+            st.markdown(f"#### {item['nama']}")
+            
+            with st.form(f"review_form_{item['id']}", clear_on_submit=True):
+                rating = st.slider("Peringkat (1-5 Bintang)", min_value=1, max_value=5, value=5, key=f"rating_{item['id']}")
+                review_text = st.text_area("Teks Ulasan (Opsional)", key=f"text_{item['id']}", placeholder="Bagaimana pengalaman Anda dengan menu ini?")
+                
+                col_submit, col_placeholder = st.columns([1, 2])
+                with col_submit:
+                    submitted = st.form_submit_button("Kirim Ulasan")
+
+                if submitted:
+                    user_id = st.session_state['user']['id']
+                    try:
+                        submit_review(user_id, item['id'], rating, review_text)
+                        st.success(f"Ulasan untuk {item['nama']} berhasil dikirim!")
+                        st.session_state['reviewed_items'].add(item['id'])
+                        st.rerun() # Diperbaiki: Menggunakan st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal mengirim ulasan: {e}")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    st.markdown("---")
+    if st.button("Selesai & Kembali ke Pesanan Saya", key='finish_review_btn'):
+        if 'review_target_order' in st.session_state:
             del st.session_state['review_target_order']
-            st.session_state['page'] = 'user_dashboard'
-            st.rerun()
+        if 'reviewed_items' in st.session_state:
+            del st.session_state['reviewed_items']
+        go('user_dashboard')
+        st.rerun() # Diperbaiki: Menggunakan st.rerun()
+
+# --- FUNGSI HALAMAN PROFIL PENGGUNA ---
+# Fungsi ini diekspor ke main.py
+def page_user_profile():
+    st.markdown("## 👤 Profil Saya")
+    user = st.session_state.get('user', {})
+    
+    if not user:
+        st.error("Anda harus masuk untuk melihat profil.")
+        return
+    
+    st.markdown(f"""
+        <div class='stContainer' style='padding: 20px; text-align: center;'>
+            <h3 style='color: #A0522D;'>{user.get('nama_pengguna', 'N/A').upper()}</h3>
+            <p style='font-weight: bold;'>Peran: <span style='color: green;'>{user.get('peran', 'N/A').capitalize()}</span></p>
+            <p>ID Pengguna: <code>{user.get('id')}</code></p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.subheader("Aksi Akun")
+    
+    col_password, col_logout = st.columns(2)
+    
+    with col_password:
+        if st.button("Ubah Kata Sandi", use_container_width=True):
+            # Mengatur state untuk navigasi ke reset password di auth.py
+            st.session_state['page'] = 'forgot_password' 
+            st.session_state['reset_step'] = 2 
+            st.session_state['username_to_reset'] = user.get('nama_pengguna')
+            st.rerun() # Diperbaiki: Menggunakan st.rerun()
+
+    with col_logout:
+        if st.button("Keluar Akun", use_container_width=True):
+            st.session_state.clear()
+            st.session_state['page'] = 'login'
+            st.rerun() # Diperbaiki: Menggunakan st.rerun()
+
+    st.markdown("---")
+    st.caption("Fungsi Profil memungkinkan Anda untuk mengelola detail akun Anda.")
 
